@@ -37,7 +37,7 @@ type MBR struct {
 
 type EBR struct {
 	PartStatusE byte
-	PartFitE    byte
+	PartFitE    [2]byte
 	PartStartE  int64
 	PartSizeE   int64
 	PartNextE   int64
@@ -213,8 +213,8 @@ func fdisk(size string, ruta string, unit string, tipo string, fit string, elimi
 	var fitparticion string = fit
 	/*
 		var deleteparticion string
-
-		var addparticion int64*/
+		var addparticion int64
+	*/
 
 	sizeparticion, err := strconv.ParseInt(size, 10, 64)
 	files, err := os.OpenFile(rutaparticion, os.O_RDWR, 0777)
@@ -227,7 +227,7 @@ func fdisk(size string, ruta string, unit string, tipo string, fit string, elimi
 	} else if strings.ToLower(unitparticion) == "m" {
 		sizeparticion = sizeparticion * 1024 * 1024
 	} else {
-		sizeparticion = sizeparticion * 8
+		sizeparticion = sizeparticion * 1
 	}
 
 	mbrauxiliar := MBR{}
@@ -241,55 +241,125 @@ func fdisk(size string, ruta string, unit string, tipo string, fit string, elimi
 		}
 	}
 	if eliminar == "vacio" || add == "vacio" {
-		if mbrauxiliar.Extend == false {
-			fmt.Println("Quedan %d Primarias, 1 extendida", (contador_particion - 1))
-		} else {
-			fmt.Println("Quedan %d Primarias, 0 extendida", contador_particion)
-		}
 		if contador_particion >= 1 {
-			fmt.Println(typeparticion)
-			if strings.ToLower(typeparticion) == "p" {
-				fmt.Println(sizeparticion)
-				ParticionPrimaria(rutaparticion, nameparticion, typeparticion, fitparticion, unitparticion, sizeparticion)
-			} else if strings.ToLower(typeparticion) == "e" && mbrauxiliar.Extend == false {
+			if mbrauxiliar.Extend == false {
 
+			} else {
+
+			}
+			if strings.ToLower(typeparticion) == "p" {
+				fmt.Println("Queda 1 extendidas y principales", (contador_particion - 1))
+				ParticionPrimaria(rutaparticion, nameparticion, typeparticion, fitparticion, unitparticion, sizeparticion)
+			} else if strings.ToLower(typeparticion) == "e" {
+				if mbrauxiliar.Extend == false {
+					fmt.Println("Queda 0 extendidas y principales", (contador_particion - 1))
+					ParticionExtendida(rutaparticion, nameparticion, typeparticion, fitparticion, unitparticion, sizeparticion)
+				} else {
+					fmt.Println("ya existe una particion extendida")
+				}
 			} else if strings.ToLower(typeparticion) == "l" {
 
 			}
-
 		}
-	}
+	} else {
 
-	fmt.Println("size mbr", mbrauxiliar.Mbrtamano)
+	}
 }
 
 func ParticionExtendida(ruta string, name string, tipo string, fit string, unit string, size int64) {
 	file, err := os.OpenFile(ruta, os.O_RDWR, 0777)
 	check(err)
 	defer file.Close()
+	ebraux := EBR{}
 	var auxName [16]byte
 	for i, j := range []byte(name) {
 		auxName[i] = byte(j)
 	}
 	mbraux := obtenerMBR(file)
-	for i := 0; i < 4; i++ {
-		if mbraux.Particion[i].PartType == 'e' || mbraux.Particion[i].PartType == 'E' {
-			fmt.Println("solo puede crear una particion extendida")
-			Menu()
-		}
-	}
-	var contador int64 = 0
 
+	var contador int64 = 0
 	for i := 0; i < 4; i++ {
 		if mbraux.Particion[i].PartStatus != '1' {
-			contador += mbraux.Particion[i].PartSize
+			contador = contador + mbraux.Particion[i].PartSize
 		}
 	}
 
+	if (mbraux.Mbrtamano - contador) >= size {
+		var verficar bool = false
+		for i := 0; i < 4; i++ {
+			if mbraux.Particion[i].PartName == auxName {
+				verficar = true
+				break
+			} else if mbraux.Particion[i].PartType == 'e' || mbraux.Particion[i].PartType == 'E' {
+				pos, _ := file.Seek(0, os.SEEK_CUR)
+				file.Seek(mbraux.Particion[i].PartStart, 0)
+				ebraux := obtenerEBR(file)
+				tam := int64(unsafe.Sizeof(ebraux))
+				for tam != 0 && pos < int64(mbraux.Particion[i].PartSize)+int64(mbraux.Particion[i].PartStart) {
+					if ebraux.PartNameE == auxName {
+						verficar = true
+					}
+					if ebraux.PartNextE == -1 {
+						break
+					} else {
+						file.Seek(ebraux.PartNextE, 0)
+						ebraux = obtenerEBR(file)
+					}
+				}
+			}
+		}
+		if !verficar {
+			fmt.Println(fit)
+			var indice int = -1
+			if strings.ToLower(fit) == "bf" {
+				indice = primerAjuste(mbraux, size)
+			} else if strings.ToLower(fit) == "ff" {
+				indice = primerAjuste(mbraux, size)
+			} else if strings.ToLower(fit) == "wf" {
+				indice = primerAjuste(mbraux, size)
+			}
+			fmt.Println(indice)
+
+			if indice != -1 {
+				var auxfit [2]byte
+				for i, j := range []byte(fit) {
+					auxfit[i] = byte(j)
+				}
+				mbraux.Particion[indice].PartFit = auxfit
+				mbraux.Particion[indice].PartType = convertirstring(tipo)
+				mbraux.Particion[indice].PartSize = size
+				mbraux.Particion[indice].PartStatus = '1'
+				mbraux.Part[indice] = false
+				mbraux.Extend = true
+
+				copy(mbraux.Particion[indice].PartName[:], name)
+				if indice == 0 {
+					mbraux.Particion[indice].PartStart = int64(binary.Size(mbraux)) + 1
+				} else {
+					mbraux.Particion[indice].PartStart = mbraux.Particion[indice-1].PartStart + mbraux.Particion[indice-1].PartSize
+				}
+
+				ebraux.PartStatusE = '0'
+				ebraux.PartFitE = auxfit
+				ebraux.PartNextE = -1
+				ebraux.PartSizeE = 0
+				ebraux.PartStartE = mbraux.Particion[indice].PartStart
+				copy(ebraux.PartNameE[:], name)
+				CrearEBR(ruta, mbraux, ebraux, indice)
+				fmt.Println("Se creo particion extendida")
+			} else {
+				fmt.Println("Ya se ah creado el maximo de particiones")
+			}
+		} else {
+			fmt.Println("ya se ah creado un partacion con este nombre")
+		}
+	} else {
+		fmt.Println("ya no tiene espacio en el disco ")
+	}
 }
 
 func ParticionPrimaria(ruta string, name string, tipo string, fit string, unit string, size int64) {
-
+	fmt.Println(size)
 	file, err := os.OpenFile(ruta, os.O_RDWR, 0777)
 	check(err)
 	defer file.Close()
@@ -302,7 +372,7 @@ func ParticionPrimaria(ruta string, name string, tipo string, fit string, unit s
 	var contador int64 = 0
 	for i := 0; i < 4; i++ {
 		if mbraux.Particion[i].PartStatus != '1' {
-			contador += mbraux.Particion[i].PartSize
+			contador = contador + mbraux.Particion[i].PartSize
 		}
 	}
 
@@ -317,7 +387,6 @@ func ParticionPrimaria(ruta string, name string, tipo string, fit string, unit s
 				ebraux := obtenerEBR(file)
 				tam := binary.Size(ebraux)
 				pos, _ := file.Seek(0, os.SEEK_CUR)
-				fmt.Println(pos)
 				for tam != 0 && pos < int64(mbraux.Particion[i].PartSize)+int64(mbraux.Particion[i].PartStart) {
 					if ebraux.PartNameE == auxName {
 						verficar = true
@@ -334,14 +403,14 @@ func ParticionPrimaria(ruta string, name string, tipo string, fit string, unit s
 		if !verficar {
 			var indice int = 0
 			if strings.ToLower(fit) == "bf" {
-				primerAjuste(mbraux, size)
+				indice = primerAjuste(mbraux, size)
 			} else if strings.ToLower(fit) == "ff" {
-				primerAjuste(mbraux, size)
+				indice = primerAjuste(mbraux, size)
 			} else if strings.ToLower(fit) == "wf" {
-				primerAjuste(mbraux, size)
+				indice = primerAjuste(mbraux, size)
 			}
 
-			if indice != -1 {
+			if indice != 0 {
 				var auxfit [2]byte
 				for i, j := range []byte(fit) {
 					auxfit[i] = byte(j)
@@ -349,8 +418,9 @@ func ParticionPrimaria(ruta string, name string, tipo string, fit string, unit s
 				mbraux.Particion[indice].PartFit = auxfit
 				mbraux.Particion[indice].PartType = convertirstring(tipo)
 				mbraux.Particion[indice].PartSize = size
-				mbraux.Particion[indice].PartStatus = '0'
-
+				mbraux.Particion[indice].PartStatus = '1'
+				mbraux.Part[indice] = true
+				copy(mbraux.Particion[indice].PartName[:], name)
 				if indice == 0 {
 					mbraux.Particion[indice].PartStart = int64(binary.Size(mbraux)) + 1
 				} else {
@@ -373,27 +443,15 @@ func ParticionPrimaria(ruta string, name string, tipo string, fit string, unit s
 		fmt.Println("ya no tiene espacio en el disco ")
 	}
 }
-func convertirstring(texto string) byte {
-	var auxfit byte
-	for j := range []byte(texto) {
-		auxfit = byte(j)
-	}
-	return auxfit
-}
+
 func primerAjuste(mbraux MBR, size int64) int {
-	var verificar bool = false
 	var indice int = 0
-	for indice < 4 {
-		if mbraux.Particion[indice].PartStart == -1 || (mbraux.Particion[indice].PartStart == '1' && mbraux.Particion[indice].PartSize >= size) {
-			verificar = true
-			break
+	for ; indice < 4; indice++ {
+		if mbraux.Particion[indice].PartStart == -1 || (mbraux.Particion[indice].PartStatus == '1' && mbraux.Particion[indice].PartSize >= size) {
+			return indice
 		}
-		indice++
 	}
-	if verificar {
-		return indice
-	}
-	return -1
+	return 0
 }
 
 func comando_mksdisk(linea string) {
@@ -465,7 +523,7 @@ func comando_rmdisk(linea string) {
 	//rmdisk -path->/home/alex/disco/Disco1.dsk
 }
 
-//Mkdisk -Size->1000 -unit->K -path->/home/alex/disco/Disco2.dsk -fit->BF
+//
 func mkdisk(size string, ruta string, unidad string, ajuste string) {
 	sizeArchivo, err := strconv.ParseInt(size, 10, 64)
 	var rutaArchivo string = ruta
@@ -520,14 +578,16 @@ func crearArchivo(size int64, unit string, ruta string, ajuste string) {
 	random := rand.New(numero)
 	temporal := MBR{Mbrtamano: size, Mbrdisk: int64(random.Intn(100))}
 	fecha := time.Now()
-	temporal.Part[0] = false
-	temporal.Part[1] = false
-	temporal.Part[2] = false
-	temporal.Part[3] = false
 	temporal.Extend = false
 	copy(temporal.Mbrfecha[:], fecha.Format("2006-01-02 15:04:05"))
 	copy(temporal.Diskfit[:], ajuste)
-
+	for i := 0; i < 4; i++ {
+		temporal.Part[i] = false
+		temporal.Particion[i].PartStatus = '0'
+		temporal.Particion[i].PartStart = -1
+		temporal.Particion[i].PartSize = 0
+		copy(temporal.Particion[i].PartName[:], "")
+	}
 	EscribirMBR(file, temporal)
 
 	/*var nuevobuffer bytes.Buffer
@@ -549,6 +609,21 @@ func EscribirMBR(file *os.File, mbraux MBR) {
 	var binario bytes.Buffer
 	binary.Write(&binario, binary.BigEndian, &mbraux)
 	escribirbinario(file, binario.Bytes())
+}
+func CrearEBR(ruta string, mbraux MBR, ebraux EBR, indice int) {
+	file, err := os.OpenFile(ruta, os.O_RDWR, 0777)
+	check(err)
+	defer file.Close()
+
+	file.Seek(0, 0)
+	var bin bytes.Buffer
+	binary.Write(&bin, binary.BigEndian, &mbraux)
+	escribirbinario(file, bin.Bytes())
+
+	file.Seek(mbraux.Particion[indice].PartStart, 0)
+	var buf bytes.Buffer
+	binary.Write(&buf, binary.BigEndian, &ebraux)
+	escribirbinario(file, buf.Bytes())
 }
 
 func escribirbinario(file *os.File, binario []byte) {
@@ -588,4 +663,11 @@ func leersiguientebyte(file *os.File, number int) []byte {
 		fmt.Println(err)
 	}
 	return bytes
+}
+func convertirstring(texto string) byte {
+	var auxfit byte
+	for j := range []byte(texto) {
+		auxfit = byte(j)
+	}
+	return auxfit
 }
