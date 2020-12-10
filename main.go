@@ -8,8 +8,10 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unsafe"
 )
@@ -152,15 +154,175 @@ func comando_rep(linea string) {
 		} else if strings.Contains(strings.ToLower(comando[i]), "-name->") {
 			aux := strings.Split(comando[i], "->")
 			nameRep = aux[1]
-			fmt.Println("nombre", nameRep)
+			fmt.Println("tipo", nameRep)
 		}
 	}
 	rep(id, rutaRep, nameRep)
 }
 func rep(id string, rutaImagen string, tipo string) {
+	if strings.ToLower(tipo) == "mbr" {
+		ReportMBR(rutaImagen, id)
+	} else if strings.ToLower(tipo) == "disk" {
+		ReportDisk(rutaImagen, id)
+	}
+}
+
+func ReportMBR(ruta string, id string) {
+	var reporte string
+	var nombre string
+	var fit string
+	DiscoM := obtenerDisco(id)
+	file, err := os.OpenFile(DiscoM.Druta, os.O_RDWR, 0777)
+	check(err)
+	defer file.Close()
+	file.Seek(0, 0)
+	mbraux := obtenerMBR(file)
+
+	fechambr := string(mbraux.Mbrfecha[:19])
+	reporte += "digraph MBR {\n"
+	reporte += "\tgraph[ label= \"Reporte MBR\"];\n"
+	reporte += "\t  node [shape=plain]\n\n"
+	reporte += "\t randir = TB; \n\n"
+
+	reporte += "\tmbr[label=<\n"
+	reporte += "\t\t<table border=\"1\" cellborder=\"1\" cellspacing=\"0\">\n "
+
+	reporte += "\t\t\t <tr> <td colspan='2'> MBR " + DiscoM.NameD + "</td> </tr>\n"
+	reporte += "\t\t\t <tr> <td> mbr_asignature </td> <td>" + strconv.Itoa(int(mbraux.Mbrdisk)) + "</td> </tr>\n"
+	reporte += "\t\t\t <tr> <td> Nombre </td> <td> default </td> </tr>\n"
+	reporte += "\t\t\t <tr> <td> mbr_Fecha</td> <td>" + fechambr + " </td> </tr>\n"
+	reporte += "\t\t\t <tr> <td> mbr_size</td> <td>" + strconv.Itoa(int(mbraux.Mbrtamano)) + "</td> </tr>\n"
+	reporte += "\t\t\t <tr> <td> mbr_</td> <td>" + strconv.Itoa(int(mbraux.Mbrtamano)) + "</td> </tr>\n"
+
+	for j, i := range mbraux.Particion {
+		aux := j + 1
+		indice := strconv.Itoa(aux)
+		if i.PartStart > -1 && i.PartStatus != '1' {
+			for _, z := range i.PartName {
+				if z != 0 {
+					nombre = nombre + string(z)
+				}
+			}
+			for _, nameaux := range i.PartFit {
+				if nameaux != 0 {
+					fit = fit + string(nameaux)
+				}
+			}
+
+			reporte += "\t\t\t <tr> <td>part_status_" + indice + "</td> <td> " + string(i.PartStatus) + " </td> </tr>\n"
+			reporte += "\t\t\t <tr> <td>part_type_" + indice + "</td> <td> " + "a" + " " + " </td> </tr>\n"
+			reporte += "\t\t\t <tr> <td>part_fit_" + indice + "</td> <td> " + fit + " </td> </tr>\n"
+			reporte += "\t\t\t <tr> <td>part_start_" + indice + "</td> <td> " + strconv.Itoa(int(i.PartStart)) + " </td> </tr>\n"
+			reporte += "\t\t\t <tr> <td>part_size_" + indice + "</td> <td> " + strconv.Itoa(int(i.PartSize)) + " </td> </tr>\n"
+			reporte += "\t\t\t <tr> <td>part_name" + indice + "</td> <td> " + nombre + " </td> </tr>\n"
+			fit = ""
+			nombre = ""
+
+		}
+	}
+
+	reporte += "\t\t </table>\n"
+	reporte += "\t >];\n\n"
+	reporte += "\n}\n"
+
+	GenerateDot(ruta, "mbrReporte.dot", reporte)
 
 }
 
+func GenerateDot(ruta string, name string, contenido string) {
+	nombre := strings.Split(ruta, "/")
+	var path string
+	for i := 0; i < (len(nombre) - 1); i++ {
+		path = path + nombre[i] + "/"
+	}
+	err := os.MkdirAll(path, 0777)
+	file, err := os.Create(path + name)
+	check(err)
+	defer file.Close()
+	files, err1 := os.OpenFile(path+name, os.O_RDWR|os.O_TRUNC, 0777)
+	check(err1)
+	defer files.Close()
+	_, err = files.WriteString(contenido)
+	err = files.Sync()
+	check(err)
+	archivo := directorio(path + name)
+	var tipo string = "-Tpng"
+	if strings.Contains(strings.ToLower(ruta), ".jpg") {
+		tipo = "-Tjpg"
+	} else if strings.Contains(strings.ToLower(ruta), ".png") == true {
+		tipo = "-Tpng"
+	}
+	fmt.Println(tipo, nombre[len(nombre)-1], archivo)
+	Procesoexec(tipo, ruta, archivo)
+
+	fmt.Println("se genero el reporte MBR con exito")
+
+}
+func abrirReporte(ruta string) string {
+	indice := strings.LastIndex(ruta, ".")
+	if indice > -1 {
+		ruta = ruta[indice:]
+		return ruta
+	}
+	return "-Tpng"
+}
+func directorio(path string) string {
+
+	if strings.Contains(path, "\"") {
+		path = strings.ReplaceAll(path, "\"", "")
+		return path
+	}
+	return path
+}
+
+func Procesoexec(tipos string, ruta string, nombre string) int {
+	comn := "dot"
+	arg0 := tipos
+	arg1 := nombre
+	arg2 := "-o"
+	arg3 := ruta
+
+	cmd := exec.Command(comn, arg0, arg1, arg2, arg3)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+	if err == nil {
+		return 0
+	}
+	if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok {
+		if ws.Exited() {
+			return ws.ExitStatus()
+		}
+
+		if ws.Signaled() {
+			return -int(ws.Signal())
+		}
+	}
+	return -1
+}
+
+func ReportDisk(ruta string, id string) {
+
+}
+
+func obtenerDisco(id string) Gmount {
+	var existe bool
+	contador := 0
+	for i := 0; i < len(DMount); i++ {
+		for j := 0; j < len(DMount[i].Mparticiones); j++ {
+			if id == DMount[i].ID[j] {
+				existe = true
+				contador = i
+				break
+			}
+		}
+	}
+	if existe == true {
+		return DMount[contador]
+	}
+	return DMount[contador]
+}
 func comando_unmount(linea string) {
 	var id string = "vacio"
 
@@ -439,12 +601,12 @@ func fdisk(size string, ruta string, unit string, tipo string, fit string, elimi
 
 		if contador_particion >= 1 {
 			if strings.ToLower(typeparticion) == "p" {
-				ParticionPrimaria(rutaparticion, nameparticion, typeparticion, fitparticion, unitparticion, sizeparticion)
+				ParticionPrimaria(rutaparticion, nameparticion, 'p', fitparticion, unitparticion, sizeparticion)
 				fmt.Println("Queda 1 extendidas y principales", (contador_particion - 1))
 			} else if strings.ToLower(typeparticion) == "e" {
 				if mbrauxiliar.Extend == false {
 					fmt.Println("Queda 0 extendidas y principales", (contador_particion - 1))
-					ParticionExtendida(rutaparticion, nameparticion, typeparticion, fitparticion, unitparticion, sizeparticion)
+					ParticionExtendida(rutaparticion, nameparticion, 'e', fitparticion, unitparticion, sizeparticion)
 				} else {
 					fmt.Println("ya existe una particion extendida")
 				}
@@ -455,7 +617,7 @@ func fdisk(size string, ruta string, unit string, tipo string, fit string, elimi
 	}
 }
 
-func ParticionExtendida(ruta string, name string, tipo string, fit string, unit string, size int64) {
+func ParticionExtendida(ruta string, name string, tipo byte, fit string, unit string, size int64) {
 	file, err := os.OpenFile(ruta, os.O_RDWR, 0777)
 	check(err)
 	defer file.Close()
@@ -490,7 +652,7 @@ func ParticionExtendida(ruta string, name string, tipo string, fit string, unit 
 				}
 
 				mbraux.Particion[indice].PartFit = auxfit
-				mbraux.Particion[indice].PartType = convertirstring(tipo)
+				mbraux.Particion[indice].PartType = tipo
 				mbraux.Particion[indice].PartSize = size
 				mbraux.Particion[indice].PartStatus = '0'
 				mbraux.Part[indice] = false
@@ -523,7 +685,7 @@ func ParticionExtendida(ruta string, name string, tipo string, fit string, unit 
 	}
 }
 
-func ParticionPrimaria(ruta string, name string, tipo string, fit string, unit string, size int64) {
+func ParticionPrimaria(ruta string, name string, tipo byte, fit string, unit string, size int64) {
 	fmt.Println(size)
 	file, err := os.OpenFile(ruta, os.O_RDWR, 0777)
 	check(err)
@@ -560,7 +722,7 @@ func ParticionPrimaria(ruta string, name string, tipo string, fit string, unit s
 					auxfit[i] = byte(j)
 				}
 				mbraux.Particion[indice].PartFit = auxfit
-				mbraux.Particion[indice].PartType = convertirstring(tipo)
+				mbraux.Particion[indice].PartType = tipo
 				mbraux.Particion[indice].PartSize = size
 				mbraux.Particion[indice].PartStatus = '0'
 				mbraux.Part[indice] = true
@@ -811,11 +973,4 @@ func leersiguientebyte(file *os.File, number int) []byte {
 		fmt.Println(err)
 	}
 	return bytes
-}
-func convertirstring(texto string) byte {
-	var auxfit byte
-	for j := range []byte(texto) {
-		auxfit = byte(j)
-	}
-	return auxfit
 }
