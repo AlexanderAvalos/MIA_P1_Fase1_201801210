@@ -43,6 +43,17 @@ type EBR struct {
 	EbrtNext  int64
 	EbrtName  [16]byte
 }
+type Gmount struct {
+	ID           [10]string
+	NameD        string
+	Druta        string
+	letra        byte
+	Mparticiones [10]string
+	numero       int64
+}
+
+//variables globales
+var DMount [27]Gmount
 
 //inicio	fmt.Println(buffer.Bytes)
 func main() {
@@ -86,11 +97,17 @@ func leercomando(linea string) {
 		fmt.Println("------------comando fdisk--------------")
 		comando_fsdisk(linea)
 	case "mount":
-		fmt.Println("comando mount")
+		fmt.Println("------------comando mount---------------")
+		comando_mount(linea)
 	case "unmount":
-		fmt.Println("comando unmount")
+		fmt.Println("------------comando unmount-------------")
+		comando_unmount(linea)
 	case "rep":
-		fmt.Println("comando reportes")
+		fmt.Println("------------comando reportes-------------")
+		comando_rep(linea)
+	default:
+		fmt.Println("comando erroneo")
+		Menu()
 	}
 }
 
@@ -115,6 +132,177 @@ func leerarchivo(ruta string) {
 			fmt.Println(comando[i])
 			leercomando(comando[i])
 		}
+	}
+}
+
+func comando_rep(linea string) {
+	var nameRep string = ""
+	var rutaRep string = ""
+	var id string = ""
+	comando := strings.Split(linea, " ")
+	for i := 1; i < len(comando); i++ {
+		if strings.Contains(strings.ToLower(comando[i]), "-path->") {
+			aux := strings.Split(comando[i], "->")
+			rutaRep = aux[1]
+			fmt.Println("ruta", rutaRep)
+		} else if strings.Contains(strings.ToLower(comando[i]), "-id->") {
+			aux := strings.Split(comando[i], "->")
+			id = aux[1]
+			fmt.Println("id", id)
+		} else if strings.Contains(strings.ToLower(comando[i]), "-name->") {
+			aux := strings.Split(comando[i], "->")
+			nameRep = aux[1]
+			fmt.Println("nombre", nameRep)
+		}
+	}
+	rep(id, rutaRep, nameRep)
+}
+func rep(id string, rutaImagen string, tipo string) {
+
+}
+
+func comando_unmount(linea string) {
+	var id string = "vacio"
+
+	comando := strings.Split(linea, " ")
+	for i := 1; i < len(comando); i++ {
+		if strings.Contains(strings.ToLower(comando[i]), "-id->") {
+			aux := strings.Split(comando[i], "->")
+			id = aux[1]
+			fmt.Println("id", id)
+		}
+	}
+	unomunt(id)
+}
+
+func unomunt(identificador string) {
+	var existe = false
+	var Dcont = 0
+	var Pcont = 0
+	for i := 0; i < len(DMount); i++ {
+		for j := 0; j < len(DMount[i].Mparticiones); j++ {
+			if identificador == DMount[i].ID[j] {
+				existe = true
+				Dcont = i
+				Pcont = j
+				break
+			}
+		}
+	}
+	fmt.Println(Dcont, Pcont, existe)
+	if Dcont >= 0 && Pcont >= 0 && existe == true {
+		DMount[Dcont].ID[Pcont] = ""
+		DMount[Dcont].Mparticiones[Pcont] = ""
+		fmt.Println("se desmonto particion con id", identificador)
+	} else {
+		fmt.Println("ID no existe", identificador)
+	}
+}
+
+func comando_mount(linea string) {
+	var rutaparticion string = "vacio"
+	var nameparticion string = "vacio"
+
+	comando := strings.Split(linea, " ")
+	for i := 1; i < len(comando); i++ {
+		if strings.Contains(strings.ToLower(comando[i]), "-path->") {
+			aux := strings.Split(comando[i], "->")
+			rutaparticion = aux[1]
+			fmt.Println("ruta", rutaparticion)
+		} else if strings.Contains(strings.ToLower(comando[i]), "-name->") {
+			aux := strings.Split(comando[i], "->")
+			nameparticion = aux[1]
+			fmt.Println("nombre", nameparticion)
+		}
+	}
+	mount(rutaparticion, nameparticion)
+}
+
+func mount(ruta string, name string) {
+
+	nombre := strings.Split(ruta, "/")
+	fmt.Println(nombre[len(nombre)-1])
+
+	var auxName [16]byte
+	for i, j := range []byte(name) {
+		auxName[i] = byte(j)
+	}
+
+	if ruta != "vacio" && name != "vacio" {
+		file, err := os.OpenFile(ruta, os.O_RDWR, 0777)
+		check(err)
+		defer file.Close()
+		file.Seek(0, 0)
+		mbraux := obtenerMBR(file)
+		var indice = -1
+		var verficar = false
+		for i, j := range mbraux.Particion {
+			if auxName == j.PartName {
+				indice = i
+				verficar = true
+				break
+			}
+		}
+		if verficar == true {
+			if indice > -1 {
+				var contador = 0
+				var existe = false
+				if DMount[0].ID[0] == "" {
+					DMount[0].Druta = ruta
+					DMount[0].NameD = nombre[len(nombre)-1]
+					DMount[0].letra = 'a'
+					DMount[0].Mparticiones[0] = name
+					DMount[0].numero = int64(1)
+					conv := strconv.FormatInt(DMount[0].numero, 10)
+					DMount[0].ID[0] = "vd" + string(DMount[0].letra) + conv
+					fmt.Println("se monto particion con id", DMount[contador].ID[0])
+				} else {
+					for i := 0; i < len(DMount); i++ {
+						if nombre[len(nombre)-1] == DMount[i].NameD {
+							contador = i
+							existe = true
+							break
+						} else {
+							if DMount[i].NameD == "" {
+								contador = i
+								break
+							}
+						}
+					}
+				}
+				if contador > 0 && existe == false {
+					DMount[contador].Druta = ruta
+					DMount[contador].NameD = nombre[len(nombre)-1]
+					convb := (97 + contador)
+					character := rune(convb)
+					DMount[contador].letra = byte(character)
+					DMount[contador].Mparticiones[0] = name
+					DMount[contador].numero = int64(1)
+					conv := strconv.FormatInt(DMount[contador].numero, 10)
+					DMount[contador].ID[0] = "vd" + string(DMount[contador].letra) + conv
+					fmt.Println("sse monto particion con id", DMount[contador].ID[0])
+
+				} else if existe == true {
+					var contador2 = 0
+					for i := 0; i < len(DMount[contador].Mparticiones); i++ {
+						if DMount[contador].Mparticiones[i] == name {
+							fmt.Println("ya monto una particion con este nombre")
+							break
+						}
+						if DMount[contador].Mparticiones[i] == "" {
+							contador2 = i
+							break
+						}
+					}
+					conv := strconv.FormatInt(int64(contador2+1), 10)
+					DMount[contador].Mparticiones[contador2] = name
+					DMount[contador].ID[contador2] = "vd" + string(DMount[contador].letra) + conv
+					fmt.Println("se monto particion con id", DMount[contador].ID[contador2])
+				}
+			}
+		}
+	} else {
+		fmt.Println("Particion no existe")
 	}
 }
 
@@ -202,7 +390,6 @@ func comando_fsdisk(linea string) {
 
 	fdisk(sizeparticion, rutaparticion, unitparticion, typeparticion, fitparticion, deleteparticion, nameparticion, addparticion)
 }
-
 func fdisk(size string, ruta string, unit string, tipo string, fit string, eliminar string, nombre string, add string) {
 
 	var sizeparticion int64
@@ -587,7 +774,6 @@ func CrearEBR(ruta string, mbraux MBR, ebraux EBR, indice int) {
 	binary.Write(&buf, binary.BigEndian, &ebraux)
 	escribirbinario(file, buf.Bytes())
 }
-
 func escribirbinario(file *os.File, binario []byte) {
 	_, err := file.Write(binario)
 	if err != nil {
