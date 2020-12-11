@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"math/rand"
 	"os"
@@ -85,33 +84,53 @@ func leercomando(linea string) {
 	case "exec":
 		fmt.Println("-------------comando exec---------------")
 		comandoexec(linea)
+		fmt.Println("------------fin comando exec -------------")
+		fmt.Println("")
 	case "pause":
 		fmt.Println("-------------comando pause--------------")
 		fmt.Print("Presione enter para continuar")
 		lector := bufio.NewReader(os.Stdin)
 		entrada, _ := lector.ReadString('\n')
 		fmt.Print(entrada)
+		fmt.Println("------------fin comando pause-----------")
+		fmt.Println("")
 	case "mkdisk":
 		fmt.Println("------------comando mkdisk-------------")
 		comando_mksdisk(linea)
+		fmt.Println("-------------fin comando mkdisk-------------")
+		fmt.Println("")
 	case "rmdisk":
 		fmt.Println("------------comando rmdisk--------------")
 		comando_rmdisk(linea)
+		fmt.Println("-----------fin comando rmdisk------------")
+		fmt.Println("")
 	case "fdisk":
 		fmt.Println("------------comando fdisk--------------")
 		comando_fsdisk(linea)
+		fmt.Println("----------fin comando disk------------")
+		fmt.Println("")
 	case "mount":
 		fmt.Println("------------comando mount---------------")
 		comando_mount(linea)
+		fmt.Println("-----------fin comando mount------------")
+		fmt.Println("")
 	case "unmount":
 		fmt.Println("------------comando unmount-------------")
 		comando_unmount(linea)
+		fmt.Println("------------fin comando unmount-------------")
+		fmt.Println("")
 	case "rep":
 		fmt.Println("------------comando reportes-------------")
 		comando_rep(linea)
+		fmt.Println("-----------fin comando reportes")
+		fmt.Println("")
 	default:
-		fmt.Println("comando erroneo")
-		Menu()
+		if strings.Contains(linea, "#") {
+			fmt.Println("")
+			fmt.Println("")
+		} else {
+			fmt.Println("comando erroneo")
+		}
 	}
 }
 
@@ -127,15 +146,15 @@ func comandoexec(linea string) {
 func leerarchivo(ruta string) {
 	file, err := os.Open(ruta)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("ruta no existe")
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		comando := strings.Split(scanner.Text(), " ")
+		comando := strings.Split(scanner.Text(), "\n")
 		for i := 0; i < len(comando); i++ {
-			fmt.Println(comando[i])
 			leercomando(comando[i])
+			fmt.Println(comando[i])
 		}
 	}
 }
@@ -144,13 +163,26 @@ func comando_rep(linea string) {
 	var nameRep string = ""
 	var rutaRep string = ""
 	var id string = ""
+	var comillas bool = false
+	if strings.Contains(linea, "\"") {
+		comillas = true
+		aux := strings.Split(linea, "\"")
+		for i := 1; i < len(aux)-1; i++ {
+			rutaRep += aux[i]
+		}
+	}
 	comando := strings.Split(linea, " ")
 	for i := 1; i < len(comando); i++ {
 		if strings.Contains(strings.ToLower(comando[i]), "-path->") {
-			aux := strings.Split(comando[i], "->")
-			rutaRep = aux[1]
-			path := strings.ReplaceAll(aux[1], "\"", "")
-			fmt.Println("ruta", path)
+			if comillas == true {
+				path := strings.ReplaceAll(rutaRep, "\"", "")
+				fmt.Println("ruta", path)
+			} else {
+				aux := strings.Split(comando[i], "->")
+				rutaRep = aux[1]
+				path := strings.ReplaceAll(rutaRep, "\"", "")
+				fmt.Println("ruta", path)
+			}
 		} else if strings.Contains(strings.ToLower(comando[i]), "-id->") {
 			aux := strings.Split(comando[i], "->")
 			id = aux[1]
@@ -354,16 +386,19 @@ func ReportDisk(ruta string, id string) {
 					}
 					reporte += siguiente(i.PartStart, i.PartSize, next, j, totaldisco)
 				} else {
-					reporte += "\t\t\t<td> Primaria <br/> " + strconv.FormatFloat(total, 'f', 6, 64) + "% del disco </td>\n"
-					var next int64 = 0
-					if j != 3 {
-						next += mbraux.Particion[j+1].PartStart
+					if total > 0 {
+						reporte += "\t\t\t<td> Primaria <br/> " + strconv.FormatFloat(total, 'f', 6, 64) + "% del disco </td>\n"
+						var next int64 = 0
+						if j != 3 {
+							next += mbraux.Particion[j+1].PartStart
+						}
+						reporte += siguiente(i.PartStart, i.PartSize, next, j, totaldisco)
 					}
-					reporte += siguiente(i.PartStart, i.PartSize, next, j, totaldisco)
 				}
 			} else {
-
-				reporte += "<td> Libre <br/> " + strconv.FormatFloat(total, 'f', 6, 64) + "% del disco</td>\n"
+				if total > 0 {
+					reporte += "<td> Libre <br/> " + strconv.FormatFloat(total, 'f', 6, 64) + "% del disco</td>\n"
+				}
 			}
 		}
 	}
@@ -469,14 +504,26 @@ func unomunt(identificador string) {
 func comando_mount(linea string) {
 	var rutaparticion string = "vacio"
 	var nameparticion string = "vacio"
-
+	var comillas bool = false
+	if strings.Contains(linea, "\"") {
+		comillas = true
+		aux := strings.Split(linea, "\"")
+		for i := 1; i < len(aux)-1; i++ {
+			rutaparticion += aux[i]
+		}
+	}
 	comando := strings.Split(linea, " ")
 	for i := 1; i < len(comando); i++ {
 		if strings.Contains(strings.ToLower(comando[i]), "-path->") {
-			aux := strings.Split(comando[i], "->")
-			rutaparticion = aux[1]
-			path := strings.ReplaceAll(rutaparticion, "\"", "")
-			fmt.Println("ruta", path)
+			if comillas == true {
+				path := strings.ReplaceAll(rutaparticion, "\"", "")
+				fmt.Println("ruta", path)
+			} else {
+				aux := strings.Split(comando[i], "->")
+				rutaparticion = aux[1]
+				path := strings.ReplaceAll(rutaparticion, "\"", "")
+				fmt.Println("ruta", path)
+			}
 		} else if strings.Contains(strings.ToLower(comando[i]), "-name->") {
 			aux := strings.Split(comando[i], "->")
 			nameparticion = aux[1]
@@ -487,10 +534,8 @@ func comando_mount(linea string) {
 }
 
 func mount(ruta string, name string) {
-
 	nombre := strings.Split(ruta, "/")
 	fmt.Println(nombre[len(nombre)-1])
-
 	var auxName [16]byte
 	for i, j := range []byte(name) {
 		auxName[i] = byte(j)
@@ -568,6 +613,8 @@ func mount(ruta string, name string) {
 					fmt.Println("se monto particion con id", DMount[contador].ID[contador2])
 				}
 			}
+		} else {
+			fmt.Println("no existe particion con ese nombre")
 		}
 	} else {
 		fmt.Println("Particion no existe")
@@ -585,7 +632,14 @@ func comando_fsdisk(linea string) {
 	var deleteparticion string = "vacio"
 	var nameparticion string = "vacio"
 	var addparticion string = "vacio"
-
+	var comillas bool = false
+	if strings.Contains(linea, "\"") {
+		comillas = true
+		aux := strings.Split(linea, "\"")
+		for i := 1; i < len(aux)-1; i++ {
+			rutaparticion += aux[i]
+		}
+	}
 	comando := strings.Split(linea, " ")
 	for i := 1; i < len(comando); i++ {
 		if strings.Contains(strings.ToLower(comando[i]), "-size->") {
@@ -616,10 +670,15 @@ func comando_fsdisk(linea string) {
 			unitparticion = aux[1]
 			fmt.Println("unit", unitparticion)
 		} else if strings.Contains(strings.ToLower(comando[i]), "-path->") {
-			aux := strings.Split(comando[i], "->")
-			rutaparticion = aux[1]
-			path := strings.ReplaceAll(rutaparticion, "\"", "")
-			fmt.Println("ruta", path)
+			if comillas == true {
+				path := strings.ReplaceAll(rutaparticion, "\"", "")
+				fmt.Println("ruta", path)
+			} else {
+				aux := strings.Split(comando[i], "->")
+				rutaparticion = aux[1]
+				path := strings.ReplaceAll(rutaparticion, "\"", "")
+				fmt.Println("ruta", path)
+			}
 		} else if strings.Contains(strings.ToLower(comando[i]), "-type->") {
 			aux := strings.Split(comando[i], "->")
 			typeparticion = aux[1]
@@ -676,7 +735,7 @@ func fdisk(size string, ruta string, unit string, tipo string, fit string, elimi
 	files, err := os.OpenFile(rutaparticion, os.O_RDWR, 0777)
 	defer files.Close()
 	if err != nil {
-		panic(err)
+		fmt.Println("ruta no existe")
 	}
 	if strings.ToLower(unitparticion) == "k" {
 		sizeparticion = sizeparticion * 1024
@@ -1003,7 +1062,7 @@ func ParticionPrimaria(ruta string, name string, tipo byte, fit string, unit str
 func mejorAjuste(mbraux MBR, size int64) int {
 	var indice int = 0
 	var verficar bool = false
-	for i := 0; i < 4; indice++ {
+	for i := 0; i < 4; i++ {
 		if mbraux.Particion[i].PartStart == -1 || (mbraux.Particion[i].PartStatus == '1' && mbraux.Particion[i].PartSize >= size) {
 			verficar = true
 			if i != indice && mbraux.Particion[indice].PartSize > mbraux.Particion[i].PartSize {
@@ -1019,7 +1078,7 @@ func mejorAjuste(mbraux MBR, size int64) int {
 func peorAjuste(mbraux MBR, size int64) int {
 	var indice int = 0
 	var verficar bool = false
-	for i := 0; i < 4; indice++ {
+	for i := 0; i < 4; i++ {
 		if mbraux.Particion[i].PartStart == -1 || (mbraux.Particion[i].PartStatus == '1' && mbraux.Particion[i].PartSize >= size) {
 			verficar = true
 			if i != indice && mbraux.Particion[indice].PartSize < mbraux.Particion[i].PartSize {
@@ -1055,6 +1114,14 @@ func comando_mksdisk(linea string) {
 	var rutaarchivo string
 	var unitarchivo string
 	var fitarchivo string
+	var comillas bool = false
+	if strings.Contains(linea, "\"") {
+		comillas = true
+		aux := strings.Split(linea, "\"")
+		for i := 1; i < len(aux)-1; i++ {
+			rutaarchivo += aux[i]
+		}
+	}
 	comando := strings.Split(linea, " ")
 	for i := 1; i < len(comando); i++ {
 		if strings.Contains(strings.ToLower(comando[i]), "-size->") {
@@ -1073,10 +1140,15 @@ func comando_mksdisk(linea string) {
 			sizearchivo = aux[1]
 			fmt.Println("tam", sizearchivo)
 		} else if strings.Contains(strings.ToLower(comando[i]), "-path->") && banderas[2] == true {
-			aux := strings.Split(comando[i], "->")
-			rutaarchivo = aux[1]
-			path := strings.ReplaceAll(rutaarchivo, "\"", "")
-			fmt.Println("ruta", path)
+			if comillas == true {
+				path := strings.ReplaceAll(rutaarchivo, "\"", "")
+				fmt.Println("ruta", path)
+			} else {
+				aux := strings.Split(comando[i], "->")
+				rutaarchivo = aux[1]
+				path := strings.ReplaceAll(rutaarchivo, "\"", "")
+				fmt.Println("ruta", path)
+			}
 		} else if strings.Contains(strings.ToLower(comando[i]), "-fit->") && banderas[3] == true {
 			aux := strings.Split(comando[i], "->")
 			fitarchivo = aux[1]
@@ -1103,16 +1175,29 @@ func comando_rmdisk(linea string) {
 
 	comando := strings.Split(linea, " ")
 	var rutaarchivo string = ""
-
+	var comillas bool = false
+	if strings.Contains(linea, "\"") {
+		comillas = true
+		aux := strings.Split(linea, "\"")
+		for i := 1; i < len(aux)-1; i++ {
+			rutaarchivo += aux[i]
+		}
+	}
 	if strings.Contains(strings.ToLower(comando[1]), "-path->") {
-		aux := strings.Split(comando[1], "->")
-		rutaarchivo = aux[1]
-		fmt.Println("ruta", rutaarchivo)
+		if comillas == true {
+			path := strings.ReplaceAll(rutaarchivo, "\"", "")
+			fmt.Println("ruta", path)
+		} else {
+			aux := strings.Split(comando[1], "->")
+			rutaarchivo = aux[1]
+			path := strings.ReplaceAll(rutaarchivo, "\"", "")
+			fmt.Println("ruta", path)
+		}
 	}
 
 	err := os.Remove(rutaarchivo)
 	if err != nil {
-		log.Fatal("Error", err)
+		fmt.Println("ruta no existe")
 	} else {
 		fmt.Println("eliminado correctamente")
 	}
@@ -1125,7 +1210,7 @@ func mkdisk(size string, ruta string, unidad string, ajuste string) {
 	var unitArchivo string = unidad
 	var fitArchivo string = ajuste
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("ruta no existe")
 	}
 	if sizeArchivo > 0 {
 		crearArchivo(sizeArchivo, unitArchivo, rutaArchivo, fitArchivo)
@@ -1223,13 +1308,13 @@ func CrearEBR(ruta string, mbraux MBR, ebraux EBR, indice int) {
 func escribirbinario(file *os.File, binario []byte) {
 	_, err := file.Write(binario)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("ruta no existe")
 	}
 }
 
 func check(err error) {
 	if err != nil {
-		panic(err)
+		fmt.Println("ruta no existe")
 	}
 }
 func obtenerMBR(file *os.File) MBR {
