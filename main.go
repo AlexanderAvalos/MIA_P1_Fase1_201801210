@@ -817,7 +817,7 @@ func eliminar_Particion(tipo string, nombre string, ruta string) {
 			for i := 0; i < 16; i++ {
 				mbraux.Particion[indice].PartName[i] = '0'
 			}
-			mbraux.Particion[indice].PartSize = 0
+			//mbraux.Particion[indice].PartSize = 0
 			mbraux.Particion[indice].PartStart = -1
 			mbraux.Particion[indice].PartStatus = '1'
 			mbraux.Particion[indice].PartType = 'p'
@@ -839,7 +839,7 @@ func eliminar_Particion(tipo string, nombre string, ruta string) {
 			for i := 0; i < 16; i++ {
 				mbraux.Particion[indice].PartName[i] = '0'
 			}
-			mbraux.Particion[indice].PartSize = 0
+			//mbraux.Particion[indice].PartSize = 0
 			mbraux.Particion[indice].PartStart = -1
 			mbraux.Particion[indice].PartStatus = '1'
 			mbraux.Particion[indice].PartType = 'p'
