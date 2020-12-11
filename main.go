@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -118,7 +120,8 @@ func leercomando(linea string) {
 func comandoexec(linea string) {
 	comando := strings.Split(linea, " ")
 	ruta := strings.Split(strings.ToLower(comando[1]), "-path->")
-	leerarchivo(ruta[1])
+	path := strings.ReplaceAll(ruta[1], "\"", "")
+	leerarchivo(path)
 }
 
 func leerarchivo(ruta string) {
@@ -146,7 +149,8 @@ func comando_rep(linea string) {
 		if strings.Contains(strings.ToLower(comando[i]), "-path->") {
 			aux := strings.Split(comando[i], "->")
 			rutaRep = aux[1]
-			fmt.Println("ruta", rutaRep)
+			path := strings.ReplaceAll(aux[1], "\"", "")
+			fmt.Println("ruta", path)
 		} else if strings.Contains(strings.ToLower(comando[i]), "-id->") {
 			aux := strings.Split(comando[i], "->")
 			id = aux[1]
@@ -186,7 +190,6 @@ func ReportMBR(ruta string, id string) {
 
 	reporte += "\tmbr[label=<\n"
 	reporte += "\t\t<table border=\"1\" cellborder=\"1\" cellspacing=\"0\">\n "
-
 	reporte += "\t\t\t <tr> <td colspan='2'> MBR " + DiscoM.NameD + "</td> </tr>\n"
 	reporte += "\t\t\t <tr> <td> mbr_asignature </td> <td>" + strconv.Itoa(int(mbraux.Mbrdisk)) + "</td> </tr>\n"
 	reporte += "\t\t\t <tr> <td> Nombre </td> <td> default </td> </tr>\n"
@@ -303,7 +306,109 @@ func Procesoexec(tipos string, ruta string, nombre string) int {
 }
 
 func ReportDisk(ruta string, id string) {
+	var reporte string
+	DiscoM := obtenerDisco(id)
+	file, err := os.OpenFile(DiscoM.Druta, os.O_RDWR, 0777)
+	check(err)
+	defer file.Close()
+	file.Seek(0, io.SeekStart)
+	mbraux := obtenerMBR(file)
 
+	reporte += "digraph Disco {\n"
+	reporte += "\tgraph[ label= \"Reporte Disco\"];\n"
+	reporte += "\t  node [shape=plain]\n\n"
+	reporte += "\t randir = TB; \n\n"
+
+	var totaldisco float64 = float64(mbraux.Mbrtamano)
+	var totalmbr float64
+	totalmbr = float64(unsafe.Sizeof(mbraux)) * 100 / totaldisco
+
+	reporte += "\tdisk[label=<\n"
+	reporte += "\t\t<table border='1' cellborder='1'  cellspacing='0' cellpadding='4'>\n "
+	reporte += "\t\t\t <tr> <td colspan='6' >  " + DiscoM.NameD + "</td> </tr> <tr>\n"
+	reporte += "<td> MBR <br/>" + strconv.FormatFloat(totalmbr, 'f', 6, 64) + "% del disco</td>"
+
+	for j, i := range mbraux.Particion {
+		var tampart float64 = float64(i.PartSize)
+		if i.PartSize > -1 {
+			total := tampart * 100 / totaldisco
+			if i.PartStatus != '1' {
+				if i.PartType == 'e' {
+					file.Seek(i.PartStart, io.SeekStart)
+					ebraux := obtenerEBR(file)
+					var totalebr float64
+					totalebr = float64(unsafe.Sizeof(ebraux)) * 100 / tampart
+					var totallibre float64 = (tampart - totalebr) * 100 / tampart
+					reporte += "\t\t\t\t<td>\n\t\t\t\t\t<table border='1' cellspacing = '0' cellborder='1'>\n"
+					reporte += "\t\t\t\t\t\t<tr>\n"
+					reporte += "\t\t\t\t\t\t\t<td colspan='2' > Extendida <br/>" + strconv.FormatFloat(total, 'f', 6, 64) + "% del disco </td>\n"
+					reporte += "\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t\n"
+					reporte += "\t\t\t\t\t\t<tr>\n"
+					reporte += "\t\t\t\t\t\t\t<td> EBR <br/>" + strconv.FormatFloat(totalebr, 'f', 6, 64) + "% del disco </td>\n"
+					reporte += "\t\t\t\t\t\t\t<td> libre <br/>" + strconv.FormatFloat(totallibre, 'f', 6, 64) + "% del disco </td>\n"
+					reporte += "\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t\n"
+					reporte += "\t\t\t\t </table>\n\t\t\t</td>"
+					var next int64
+					if j != 3 {
+						next += mbraux.Particion[j+1].PartStart
+					}
+					reporte += siguiente(i.PartStart, i.PartSize, next, j, totaldisco)
+				} else {
+					reporte += "\t\t\t<td> Primaria <br/> " + strconv.FormatFloat(total, 'f', 6, 64) + "% del disco </td>\n"
+					var next int64 = 0
+					if j != 3 {
+						next += mbraux.Particion[j+1].PartStart
+					}
+					reporte += siguiente(i.PartStart, i.PartSize, next, j, totaldisco)
+				}
+			} else {
+
+				reporte += "<td> Libre <br/> " + strconv.FormatFloat(total, 'f', 6, 64) + "% del disco</td>\n"
+			}
+		}
+	}
+
+	reporte += "</tr></table>\n\t >];\n\n"
+	reporte += "\n}\n"
+
+	GenerateDot(ruta, "ReporteDisco.dot", reporte)
+
+}
+
+func siguiente(start int64, size int64, sig int64, indice int, total float64) string {
+	var reporte string
+	var mbraux MBR
+	if indice != 3 {
+		var Part1 float64 = float64(start + size)
+		var tam float64 = total + float64(int64(unsafe.Sizeof(mbraux)))
+
+		if sig == -1 && tam != Part1 {
+			var libre float64 = tam - Part1 + float64(unsafe.Sizeof(mbraux))
+			var por float64 = libre * 100 / total
+			if por == 0 {
+				reporte = ""
+			} else {
+				reporte += "\t\t\t<td> Libre <br/>"
+				reporte += strconv.FormatFloat(por, 'f', 6, 64)
+				reporte += "% del disco </td>"
+			}
+		}
+	} else {
+		var Part1 float64 = float64(start + size)
+		var tam float64 = total + float64(int64(unsafe.Sizeof(mbraux)))
+		if tam != Part1 {
+			var libre float64 = tam - Part1 + float64(unsafe.Sizeof(mbraux))
+			var por float64 = libre * 100 / total
+			if por == 0 {
+				reporte = ""
+			} else {
+				reporte += "\t\t\t<td> Libre <br/>"
+				reporte += strconv.FormatFloat(por, 'f', 6, 64)
+				reporte += "% del disco </td>"
+			}
+		}
+	}
+	return reporte
 }
 
 func obtenerDisco(id string) Gmount {
@@ -370,7 +475,8 @@ func comando_mount(linea string) {
 		if strings.Contains(strings.ToLower(comando[i]), "-path->") {
 			aux := strings.Split(comando[i], "->")
 			rutaparticion = aux[1]
-			fmt.Println("ruta", rutaparticion)
+			path := strings.ReplaceAll(rutaparticion, "\"", "")
+			fmt.Println("ruta", path)
 		} else if strings.Contains(strings.ToLower(comando[i]), "-name->") {
 			aux := strings.Split(comando[i], "->")
 			nameparticion = aux[1]
@@ -512,7 +618,8 @@ func comando_fsdisk(linea string) {
 		} else if strings.Contains(strings.ToLower(comando[i]), "-path->") {
 			aux := strings.Split(comando[i], "->")
 			rutaparticion = aux[1]
-			fmt.Println("ruta", rutaparticion)
+			path := strings.ReplaceAll(rutaparticion, "\"", "")
+			fmt.Println("ruta", path)
 		} else if strings.Contains(strings.ToLower(comando[i]), "-type->") {
 			aux := strings.Split(comando[i], "->")
 			typeparticion = aux[1]
@@ -560,12 +667,12 @@ func fdisk(size string, ruta string, unit string, tipo string, fit string, elimi
 	var typeparticion string = tipo
 	var nameparticion string = nombre
 	var fitparticion string = fit
-	/*
-		var deleteparticion string
-		var addparticion int64
-	*/
+	var deleteparticion string = eliminar
+	var addparticion int64
 
 	sizeparticion, err := strconv.ParseInt(size, 10, 64)
+	addparticion, err1 := strconv.ParseInt(add, 10, 64)
+	check(err1)
 	files, err := os.OpenFile(rutaparticion, os.O_RDWR, 0777)
 	defer files.Close()
 	if err != nil {
@@ -579,14 +686,6 @@ func fdisk(size string, ruta string, unit string, tipo string, fit string, elimi
 		sizeparticion = sizeparticion * 1
 	}
 
-	if strings.ToLower(fitparticion) == "ff" {
-
-	} else if strings.ToLower(fitparticion) == "bf" {
-
-	} else if strings.ToLower(fitparticion) == "wf" {
-
-	}
-
 	mbrauxiliar := MBR{}
 	//var espacio_particion = false
 	mbrauxiliar = obtenerMBR(files)
@@ -597,12 +696,17 @@ func fdisk(size string, ruta string, unit string, tipo string, fit string, elimi
 			contador_particion++
 		}
 	}
-	if eliminar == "vacio" || add == "vacio" {
+	if eliminar == "vacio" && add == "vacio" {
 
 		if contador_particion >= 1 {
 			if strings.ToLower(typeparticion) == "p" {
 				ParticionPrimaria(rutaparticion, nameparticion, 'p', fitparticion, unitparticion, sizeparticion)
-				fmt.Println("Queda 1 extendidas y principales", (contador_particion - 1))
+				if mbrauxiliar.Extend == false {
+					fmt.Println("Queda 1 extendidas y principales", (contador_particion - 1))
+				} else {
+					fmt.Println("Queda 0 extendidas y principales", (contador_particion - 1))
+				}
+
 			} else if strings.ToLower(typeparticion) == "e" {
 				if mbrauxiliar.Extend == false {
 					fmt.Println("Queda 0 extendidas y principales", (contador_particion - 1))
@@ -611,10 +715,144 @@ func fdisk(size string, ruta string, unit string, tipo string, fit string, elimi
 					fmt.Println("ya existe una particion extendida")
 				}
 			} else if strings.ToLower(typeparticion) == "l" {
-
+				fmt.Println("No hay particiones logicas ")
 			}
 		}
+	} else if eliminar != "vacio" {
+		eliminar_Particion(deleteparticion, nameparticion, rutaparticion)
+	} else if add != "vacio" {
+		AEpraticion(addparticion, unitparticion, rutaparticion, nameparticion)
 	}
+}
+
+func eliminar_Particion(tipo string, nombre string, ruta string) {
+	file, err := os.OpenFile(ruta, os.O_RDWR, 0777)
+	check(err)
+	defer file.Close()
+	mbraux := obtenerMBR(file)
+	var auxName [16]byte
+	for i, j := range []byte(nombre) {
+		auxName[i] = byte(j)
+	}
+	var verificar = false
+	var indice = 0
+	for i := 0; i < 4; i++ {
+		if auxName == mbraux.Particion[i].PartName {
+			verificar = true
+			indice = 0
+			break
+		}
+	}
+
+	if verificar == true && indice > -1 {
+		file.Seek(0, io.SeekStart)
+		if mbraux.Particion[indice].PartType == 'p' {
+			aux := make([]byte, mbraux.Particion[indice].PartSize)
+			file.Seek(mbraux.Particion[indice].PartStart, io.SeekStart)
+			var bin bytes.Buffer
+			binary.Write(&bin, binary.BigEndian, &aux)
+			escribirbinario(file, bin.Bytes())
+
+			file.Seek(0, io.SeekStart)
+			copy(mbraux.Particion[indice].PartFit[:], "ff")
+			for i := 0; i < 16; i++ {
+				mbraux.Particion[indice].PartName[i] = '0'
+			}
+			mbraux.Particion[indice].PartSize = 0
+			mbraux.Particion[indice].PartStart = -1
+			mbraux.Particion[indice].PartStatus = '1'
+			mbraux.Particion[indice].PartType = 'p'
+
+			var binario bytes.Buffer
+			binary.Write(&binario, binary.BigEndian, &mbraux)
+			escribirbinario(file, binario.Bytes())
+			fmt.Println("particion eliminada")
+
+		} else if mbraux.Particion[indice].PartType == 'e' {
+			aux := make([]byte, mbraux.Particion[indice].PartSize)
+			file.Seek(mbraux.Particion[indice].PartStart, io.SeekStart)
+			var bin bytes.Buffer
+			binary.Write(&bin, binary.BigEndian, &aux)
+			escribirbinario(file, bin.Bytes())
+
+			file.Seek(0, io.SeekStart)
+			copy(mbraux.Particion[indice].PartFit[:], "ff")
+			for i := 0; i < 16; i++ {
+				mbraux.Particion[indice].PartName[i] = '0'
+			}
+			mbraux.Particion[indice].PartSize = 0
+			mbraux.Particion[indice].PartStart = -1
+			mbraux.Particion[indice].PartStatus = '1'
+			mbraux.Particion[indice].PartType = 'p'
+
+			var binario bytes.Buffer
+			binary.Write(&binario, binary.BigEndian, &mbraux)
+			escribirbinario(file, binario.Bytes())
+			fmt.Println("particion eliminada")
+		}
+	} else {
+		fmt.Println("no existe la particion con ese nombre")
+	}
+
+}
+func AEpraticion(add int64, unit string, ruta string, name string) {
+	file, err := os.OpenFile(ruta, os.O_RDWR, 0777)
+	check(err)
+	defer file.Close()
+	mbraux := obtenerMBR(file)
+
+	var auxName [16]byte
+	for i, j := range []byte(name) {
+		auxName[i] = byte(j)
+	}
+	var sizeparticion int64 = add
+	if strings.ToLower(unit) == "k" {
+		sizeparticion = add * 1024
+	} else if strings.ToLower(unit) == "m" {
+		sizeparticion = add * 1024 * 1024
+	} else {
+		sizeparticion = add * 1
+	}
+	var verificar = false
+	var indice = 0
+
+	for i := 0; i < 4; i++ {
+		if auxName == mbraux.Particion[i].PartName {
+			verificar = true
+			indice = 0
+			break
+		}
+	}
+
+	if verificar == true && indice > -1 {
+		if sizeparticion > 0 {
+			if math.Abs(float64(sizeparticion)) >= float64(mbraux.Mbrtamano) {
+				fmt.Println("ya no hay espacio libre")
+			} else {
+				mbraux.Particion[indice].PartSize = mbraux.Particion[indice].PartSize + int64(math.Abs(float64(sizeparticion)))
+				file.Seek(0, 0)
+				var bin bytes.Buffer
+				binary.Write(&bin, binary.BigEndian, &mbraux)
+				escribirbinario(file, bin.Bytes())
+				fmt.Println("se agrego es espacio exitosamente")
+			}
+		} else {
+			fmt.Println(mbraux.Particion[indice].PartSize)
+			if math.Abs(float64(sizeparticion)) >= float64(mbraux.Particion[indice].PartSize) {
+				fmt.Println("el espacio a reducir es mayor al la particion")
+			} else {
+				mbraux.Particion[indice].PartSize = mbraux.Particion[indice].PartSize - int64(math.Abs(float64(sizeparticion)))
+				file.Seek(0, 0)
+				var bin bytes.Buffer
+				binary.Write(&bin, binary.BigEndian, &mbraux)
+				escribirbinario(file, bin.Bytes())
+				fmt.Println("se redujo es espacio exitosamente")
+			}
+		}
+	} else {
+		fmt.Println("la particion no existe")
+	}
+
 }
 
 func ParticionExtendida(ruta string, name string, tipo byte, fit string, unit string, size int64) {
@@ -644,8 +882,15 @@ func ParticionExtendida(ruta string, name string, tipo byte, fit string, unit st
 		}
 		if !verficar {
 			var indice int = -1
-			indice = primerAjuste(mbraux, size)
+			if strings.ToLower(fit) == "ff" {
+				indice = primerAjuste(mbraux, size)
+			} else if strings.ToLower(fit) == "bf" {
+				indice = mejorAjuste(mbraux, size)
+			} else if strings.ToLower(fit) == "wf" {
+				indice = peorAjuste(mbraux, size)
+			}
 			if indice != -1 {
+
 				var auxfit [2]byte
 				for i, j := range []byte(fit) {
 					auxfit[i] = byte(j)
@@ -714,7 +959,13 @@ func ParticionPrimaria(ruta string, name string, tipo byte, fit string, unit str
 
 		if !verficar {
 			var indice int = 0
-			indice = primerAjuste(mbraux, size)
+			if strings.ToLower(fit) == "ff" {
+				indice = primerAjuste(mbraux, size)
+			} else if strings.ToLower(fit) == "bf" {
+				indice = mejorAjuste(mbraux, size)
+			} else if strings.ToLower(fit) == "wf" {
+				indice = peorAjuste(mbraux, size)
+			}
 
 			if indice != -1 {
 				var auxfit [2]byte
@@ -748,6 +999,39 @@ func ParticionPrimaria(ruta string, name string, tipo byte, fit string, unit str
 	} else {
 		fmt.Println("ya no tiene espacio en el disco ")
 	}
+}
+func mejorAjuste(mbraux MBR, size int64) int {
+	var indice int = 0
+	var verficar bool = false
+	for i := 0; i < 4; indice++ {
+		if mbraux.Particion[i].PartStart == -1 || (mbraux.Particion[i].PartStatus == '1' && mbraux.Particion[i].PartSize >= size) {
+			verficar = true
+			if i != indice && mbraux.Particion[indice].PartSize > mbraux.Particion[i].PartSize {
+				indice = i
+			}
+		}
+	}
+	if verficar {
+		return indice
+	}
+	return -1
+}
+func peorAjuste(mbraux MBR, size int64) int {
+	var indice int = 0
+	var verficar bool = false
+	for i := 0; i < 4; indice++ {
+		if mbraux.Particion[i].PartStart == -1 || (mbraux.Particion[i].PartStatus == '1' && mbraux.Particion[i].PartSize >= size) {
+			verficar = true
+			if i != indice && mbraux.Particion[indice].PartSize < mbraux.Particion[i].PartSize {
+				indice = i
+			}
+		}
+	}
+	if verficar {
+		return indice
+	}
+	return -1
+	return -1
 }
 
 func primerAjuste(mbraux MBR, size int64) int {
@@ -791,7 +1075,8 @@ func comando_mksdisk(linea string) {
 		} else if strings.Contains(strings.ToLower(comando[i]), "-path->") && banderas[2] == true {
 			aux := strings.Split(comando[i], "->")
 			rutaarchivo = aux[1]
-			fmt.Println("ruta", rutaarchivo)
+			path := strings.ReplaceAll(rutaarchivo, "\"", "")
+			fmt.Println("ruta", path)
 		} else if strings.Contains(strings.ToLower(comando[i]), "-fit->") && banderas[3] == true {
 			aux := strings.Split(comando[i], "->")
 			fitarchivo = aux[1]
@@ -834,7 +1119,6 @@ func comando_rmdisk(linea string) {
 	//rmdisk -path->/home/alex/disco/Disco1.dsk
 }
 
-//
 func mkdisk(size string, ruta string, unidad string, ajuste string) {
 	sizeArchivo, err := strconv.ParseInt(size, 10, 64)
 	var rutaArchivo string = ruta
